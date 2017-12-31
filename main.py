@@ -9,6 +9,9 @@ import time
 import pickle
 from bluelens_spawning_pool import spawning_pool
 from stylelens_image.images import Images
+from stylelens_product.products import Products
+from stylelens_product.crawls import Crawls
+from stylelens_object.objects import Objects
 
 from bluelens_log import Logging
 
@@ -25,13 +28,13 @@ PRODUCT_NO = 'product_no'
 MAIN = 'main'
 NATION = 'nation'
 
-SPAWN_MAX = 20
+SPAWN_MAX = 200
 
 REDIS_OBJECT_INDEX_DONE = 'bl:object:index:done'
-REDIS_PRODUCT_CLASSIFY_QUEUE = 'bl:product:classify:queue'
-# REDIS_CRAWL_VERSION = 'bl:crawl:version'
-# REDIS_CRAWL_VERSION_LATEST = 'latest'
+REDIS_OBJECT_INDEX_QUEUE = 'bl:object:index:queue'
 REDIS_IMAGE_INDEX_QUEUE = 'bl:image:index:queue'
+REDIS_CRAWL_VERSION = 'bl:crawl:version'
+REDIS_CRAWL_VERSION_LATEST = 'latest'
 
 REDIS_SERVER = os.environ['REDIS_SERVER']
 REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
@@ -58,11 +61,19 @@ options = {
 }
 log = Logging(options, tag='bl-image-index')
 
+def get_latest_crawl_version(rconn):
+  value = rconn.hget(REDIS_CRAWL_VERSION, REDIS_CRAWL_VERSION_LATEST)
+  log.debug(value)
+  try:
+    version_id = value.decode("utf-8")
+  except Exception as e:
+    log.error(str(e))
+    version_id = None
+  return version_id
 
 def query(version_id):
   log.info('start query: ' + version_id)
 
-  # version_id = get_latest_crawl_version()
   image_api = Images()
 
   q_offset = 0
@@ -88,11 +99,6 @@ def cleanup_images(image_api, version_id):
     log.debug(res)
   except Exception as e:
     log.error(e)
-
-# def get_latest_crawl_version():
-#   value = rconn.hget(REDIS_CRAWL_VERSION, REDIS_CRAWL_VERSION_LATEST)
-#   version_id = value.decode("utf-8")
-#   return version_id
 
 def push_images_to_queue(images):
   rconn.lpush(REDIS_IMAGE_INDEX_QUEUE, pickle.dumps(images))
@@ -136,10 +142,49 @@ def spawn_indexer(uuid):
   pool.setRestartPolicy('Never')
   pool.spawn()
 
+
+def check_condition_to_start(version_id):
+  product_api = Products()
+  crawl_api = Crawls()
+  object_api = Objects()
+
+  try:
+    # Check Crawling process is done
+    total_crawl_size = crawl_api.get_size_crawls(version_id)
+    crawled_size = crawl_api.get_size_crawls(version_id, status='done')
+    if total_crawl_size != crawled_size:
+      return False
+
+    # Check Classifying process is done
+    total_product_size = product_api.get_size_products(version_id)
+    classified_size = product_api.get_size_products(version_id, is_classified=True)
+    if total_product_size != classified_size:
+      return False
+
+    classifying_queue_size = rconn.llen(REDIS_OBJECT_INDEX_QUEUE)
+    if classifying_queue_size > 0:
+      return False
+
+    # Check Indexing process is done
+    total_object_size = object_api.get_size_objects(version_id)
+    indexed_size = object_api.get_size_objects(version_id, is_indexed=True)
+    if total_object_size != indexed_size:
+      return False
+
+  except Exception as e:
+    log.error(str(e))
+
+  return True
+
 def dispatch_query_job(rconn):
   while True:
-    key, value = rconn.blpop([REDIS_OBJECT_INDEX_DONE])
-    query(value.decode('utf-8'))
+    version_id = get_latest_crawl_version(rconn)
+    if version_id is not None:
+      ok = check_condition_to_start(version_id)
+      if ok is True:
+        query(version_id)
+      else:
+        time.sleep(60*10)
 
 def dispatch_indexer(rconn):
 

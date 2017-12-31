@@ -28,7 +28,7 @@ spec:
         name: bl-image-index
     spec:
       containers:
-      - image: bluelens/bl-image-index:latest
+      - image: bluelens/bl-image-index:prod
         name: bl-image-index
         ports:
         - containerPort: 8080
