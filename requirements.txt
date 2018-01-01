@@ -6,6 +6,6 @@ python-dateutil==2.6.1
 redis==2.10.6
 six==1.11.0
 stylelens-image==0.0.4
-stylelens-object==0.0.14
-stylelens-product==1.0.45
+stylelens-object==0.0.15
+stylelens-product==1.0.47
 urllib3==1.22
