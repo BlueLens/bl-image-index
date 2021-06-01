@@ -8,4 +8,4 @@ six==1.11.0
 stylelens-image==0.0.4
 stylelens-object==0.0.26
 stylelens-product==1.0.52
-urllib3==1.22
+urllib3==1.26.5
